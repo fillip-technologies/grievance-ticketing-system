@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: grievance
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d grievance"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # Loads GEMINI_API_KEY / SMTP_* / JWT_SECRET / etc. straight from backend/.env —
+    # just edit that file and re-run `docker compose up --build`, no shell exports needed.
+    env_file:
+      - ./backend/.env
+    environment:
+      # Always points at the compose-managed Postgres service, regardless of what
+      # DATABASE_URL is set to in backend/.env (that file's default is for local dev).
+      DATABASE_URL: postgresql+asyncpg://app:app@db:5432/grievance
+      # Public HTTPS domain this stack is actually deployed at — used to build the "Open Ticket"
+      # deep link (?ticket=...) in emails sent to logged-in staff (resolver assignment,
+      # escalation, SLA warning, admin alert). Must be reachable from wherever staff read their
+      # email, so it can't be a localhost/container-internal address. Change this if you deploy
+      # elsewhere.
+      FRONTEND_URL: https://grievance.fillipsoftware.com
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  pgdata:
+
+
